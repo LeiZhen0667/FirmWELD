@@ -1,20 +1,12 @@
 # FirmWELD
 
-FirmWELD consists of a fully automated firmware emulation framework focused on interactive web functionalities and a firmware identification scheme. We evaluated FirmWELD using 7,971 firmware images from wireless routers and IP cameras produced by eight major vendors.
+FirmWELD consists of a fully automated firmware emulation framework focused on interactive web functionalities and a firmware identification scheme. FirmWELD successfully emulated 3,665 (46%) out of 7,971 firmware images, which is 1.6× more than the state-of-the-art full-system emulator [`FirmAE`](https://github.com/pr0v3rbs/FirmAE). We evaluated FirmWELD using 7,971 firmware images from wireless routers and IP cameras produced by eight major vendors.
 
 ## Detailed Description
 
-The rapid deployment of Internet of Things (IoT) devices on the Internet has significantly expanded the attack surface. In particular, N-day vulnerabilities pose serious threats to devices running outdated firmware. Consequently, Online Device Firmware Version Identification (ODFVI) is critical for assessing device security.
+The rapid deployment of Internet of Things (IoT) devices on the Internet has significantly expanded the attack surface. In particular, N-day vulnerabilities pose serious threats to devices running outdated firmware. Consequently, Online Device Firmware Version Identification (ODFVI) is critical for assessing device security. However, existing ODFVI methods lack an understanding of the interaction mechanisms of embedded web components, which limits their accuracy and scalability. 
 
-However, existing ODFVI methods lack an understanding of the interaction mechanisms of embedded web components, which limits their accuracy and scalability. In this work, we present FirmWELD, which employs heuristic-based techniques to emulate interactive web services within firmware, enabling large-scale and high-fidelity acquisition of embedded web resources.
-
-Subsequently, FirmWELD utilizes a feature fusion attention network to capture semantic cues and subtle differences in embedded web interfaces.
-
-To address the high inter-version similarity caused by web page reuse, we propose a novel metric loss function, namely the Hard Mining Cosine Triplet-Center Loss, which improves intra-class compactness and inter-class separability.
-
-In our evaluation, FirmWELD successfully emulated 3,665 (46%) of 7,971 firmware images, achieving 1.6× higher coverage than the state-of-the-art full-system emulator FirmAE. Leveraging this emulation capability, FirmWELD collected 130,445 validated web pages and outperformed state-of-the-art ODFVI approaches by over 25% on average in both precision and recall.
-
-Furthermore, the system revealed that only 2.28% of devices in our dataset were running the latest firmware version. Our evaluation also indicates that 6,684 devices (approximately 61.26%) with outdated firmware remain vulnerable to known exploits.
+In this work, we present FirmWELD, which employs heuristic-based techniques to emulate interactive web services within firmware, enabling large-scale and high-fidelity acquisition of embedded web resources. Subsequently, FirmWELD utilizes a feature fusion attention network to capture semantic cues and subtle differences in embedded web interfaces. To address the high inter-version similarity caused by web page reuse, we propose a novel metric loss function, namely the Hard Mining Cosine Triplet-Center Loss, which improves intra-class compactness and inter-class separability. In our evaluation, FirmWELD successfully emulated 3,665 (46%) of 7,971 firmware images, achieving 1.6× higher coverage than the state-of-the-art full-system emulator FirmAE. Leveraging this emulation capability, FirmWELD collected 130,445 validated web pages and outperformed state-of-the-art ODFVI approaches by over 25% on average in both precision and recall. Furthermore, the system revealed that only 2.28% of devices in our dataset were running the latest firmware version. Our evaluation also indicates that 6,684 devices (approximately 61.26%) with outdated firmware remain vulnerable to known exploits.
 
 # Firmware Emulation
 

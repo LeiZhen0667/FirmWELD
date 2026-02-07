@@ -24,11 +24,11 @@ $ git clone --recursive https://github.com/LeiZhen0667/FirmWELD
 $ ./download.sh
 ```
 
-3. Run FirmWELD using the Docker image [`firmweld:latest`](https://hub.docker.com/r/firmweld/firmweld).
+3. Run FirmWELD using the Docker image [`firmweld:latest`](https://drive.google.com/file/d/1a6NjSHlUWi5yWQh06FhXw86caZ5hiOj8/view?usp=drive_link).
 
 ```console
 $ docker pull firmweld/firmweld:latest
-$ docker run -it --rm firmweld/firmweld:latest
+$ docker run -dit --rm -v /dev:/dev -v firmweld_root:/work/FirmWELD -v firmware_root:/work/firmwares --privileged=true --name docker_name firmweld:latest
 ```
 
 ## Usage
@@ -68,12 +68,12 @@ $ ./docker-helper.py -ea <brand> <firmware>
 ### Emulation result
 
 Google spreadsheet -
-[view](https://docs.google.com/spreadsheets/d/1dbKxr_WOZ7UmneOogug1Zykj1erpfk-GzRNni8DjroI/edit?usp=sharing)
+[view](https://drive.google.com/drive/folders/1gfTaErQiCP70fGy2bWkSlDa--k7h7SUa?usp=sharing)
 
 ### Dataset
 
 Google drive -
-[download](https://drive.google.com/file/d/1hdm75NVKBvs-eVH9rKb5xfgryNSnsg_8/view?usp=sharing)
+[download](https://drive.google.com/drive/folders/1SZmsc6nhPvz_yC3blK74epYMaZTTf86k?usp=sharing)
 
 # Online Device Firmware Version Identification
 

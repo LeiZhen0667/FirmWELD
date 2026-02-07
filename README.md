@@ -73,9 +73,8 @@ Google spreadsheet -
 ### Dataset
 
 Google drive -
-[download](https://drive.google.com/drive/folders/1SZmsc6nhPvz_yC3blK74epYMaZTTf86k?usp=sharing)
+[view](https://drive.google.com/drive/folders/1SZmsc6nhPvz_yC3blK74epYMaZTTf86k?usp=sharing)
 
 # Online Device Firmware Version Identification
 
-For detailed information, please refer to [`DeepFW`] 
-(https://github.com/LeiZhen0667/DeepFW).
+For detailed information, please refer to [DeepFW](https://github.com/LeiZhen0667/DeepFW).

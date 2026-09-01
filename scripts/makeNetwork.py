@@ -12,6 +12,15 @@ import subprocess
 import pwn
 import shutil
 import signal
+from pathlib import Path
+
+from dependency_planner import build_ipc_plan, resolve_service_binary, write_guest_plan
+from karonte_bdg import run_karonte_bdg
+from library_recovery import apply_recoveries, build_library_plan
+from network_planner import choose_network_plan
+from nvram_planner import apply_override, build_nvram_plan
+from runtime_state import collect_runtime_state, write_json_atomic
+from web_visibility import apply_visibility_plan, build_visibility_plan
 
 debug = 0
 SCRATCHDIR = ''
@@ -123,55 +132,37 @@ echo "${RUN_TAG}" > "${RUN_TAG_FILE}"
         exit 0
     fi
 
-    # ============================================================
-    # 任务 1：mount /proc
-    # ============================================================
-    echo "[run.sh][tag=${TAG}] executing mount /proc..." >&2
     sudo chmod a+rw "${SERIAL}" 2>/dev/null || true
-    printf "%%s\n" "mount -t proc proc /proc" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
-    sleep 3
-    echo "[run.sh][tag=${TAG}] mount /proc done." >&2
 
-    # ============================================================
-    # 任务 2：执行 run_service.sh（仅当 SERVICE_CMD 非空），去掉了sleep 60
-    # ============================================================
-
-    %(SERVICE_BLOCK)s
-
-    # ============================================================
-    # 任务 3：cfg_cmds
-    # ============================================================
+    # Phase 1: restore the selected network mode before web daemons.
     if [ -f "${CFG_LIST}" ]; then
-        echo "[run.sh][tag=${TAG}] executing cfg_cmds..." >&2
-        sudo chmod a+rw "${SERIAL}" 2>/dev/null || true
+        echo "[run.sh][tag=${TAG}] phase 1: network intervention..." >&2
 
         while IFS= read -r line; do
             [ -z "${line}" ] && continue
             check_tag || exit 0
 
-            # 执行命令，但不打印具体命令内容
             printf "%%s\n" "${line}" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
             sleep 1
         done < "${CFG_LIST}"
-
-        echo "[run.sh][tag=${TAG}] cfg_cmds done." >&2
-    else
-        echo "[run.sh][tag=${TAG}] cfg_cmds skipped (file missing)." >&2
     fi
-
-    # ============================================================
-    # 任务 4：循环禁用防火墙（持续运行，直到 TAG 改变），去掉了sleep 60
-    # ============================================================
-    echo "[run.sh][tag=${TAG}] starting firewall-disable once..." >&2
-
-    check_tag || {
-        echo "[run.sh][tag=${TAG}] tag changed, firewall disable skipped." >&2
-        exit 0
-    }
     printf "chmod +x /firmadyne/network.sh\n" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
-    printf "/firmadyne/network.sh &\n"        | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
+    printf "/firmadyne/network.sh\n" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
+    sleep 5
 
-    echo "[run.sh][tag=${TAG}] firewall disable script started." >&2
+    # Phase 2: expose virtual runtime filesystems idempotently.
+    echo "[run.sh][tag=${TAG}] phase 2: virtual filesystems..." >&2
+    printf "/firmadyne/busybox mount | /firmadyne/busybox grep -q ' on /proc ' || /firmadyne/busybox mount -t proc proc /proc\n" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
+    printf "/firmadyne/busybox mount | /firmadyne/busybox grep -q ' on /sys ' || /firmadyne/busybox mount -t sysfs sysfs /sys\n" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
+    sleep 3
+
+    # Phase 3: start missing IPC daemons in observed order, then the web service.
+    %(SERVICE_BLOCK)s
+
+    # Phase 4: adjust only policies that can block selected web ports.
+    echo "[run.sh][tag=${TAG}] phase 4: policy stabilization..." >&2
+    printf "chmod +x /firmadyne/policy.sh\n" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
+    printf "/firmadyne/policy.sh\n" | socat - "UNIX-CLIENT:${SERIAL}" 2>/dev/null || true
 
 ) &
 
@@ -181,6 +172,7 @@ mount ${DEVICE} ${WORK_DIR}/image > /dev/null
 echo "%(NETWORK_TYPE)s" > ${WORK_DIR}/image/firmadyne/network_type
 echo "%(NET_BRIDGE)s" > ${WORK_DIR}/image/firmadyne/net_bridge
 echo "%(NET_INTERFACE)s" > ${WORK_DIR}/image/firmadyne/net_interface
+echo "%(WEB_PORTS)s" > ${WORK_DIR}/image/firmadyne/web_ports
 
 echo "#!/firmadyne/sh" > ${WORK_DIR}/image/firmadyne/debug.sh
 if (echo ${RUN_MODE} | grep -q "debug"); then
@@ -235,7 +227,7 @@ def checkVariable(key):
 def stripTimestamps(data):
     lines = data.split(b"\n")
     # throw out the timestamps
-    prog = re.compile(b"^\[[^\]]*\] firmadyne: ")
+    prog = re.compile(br"^\[[^\]]*\] firmadyne: ")
     lines = [prog.sub(b"", l) for l in lines]
     return lines
 
@@ -353,7 +345,7 @@ def findPorts(data, endianness):
         fmt = ">I"
     elif endianness == "el":
         fmt = "<I"
-    prog = re.compile(b"^inet_bind\[[^\]]+\]: proto:SOCK_(DGRAM|STREAM), ip:port: 0x([0-9a-f]+):([0-9]+)")
+    prog = re.compile(br"^inet_bind\[[^\]]+\]: proto:SOCK_(DGRAM|STREAM), ip:port: 0x([0-9a-f]+):([0-9]+)")
     portSet = {}
     for c in candidates:
         g = prog.match(c)
@@ -850,6 +842,10 @@ def qemuCmd(iid, network, ports, network_type, arch, endianness, qemuInitValue, 
     else:
         SERVICE_BLOCK = ""
 
+    web_ports = sorted({port for proto, _ip, port in ports if proto == "tcp" and port in (80, 443, 8000, 8080, 8888)})
+    if not web_ports:
+        web_ports = [80, 443]
+
     return QEMUCMDTEMPLATE % {'IID': iid,
                               'NETWORK_TYPE': network_type,
                               'NET_BRIDGE': network_bridge,
@@ -861,7 +857,8 @@ def qemuCmd(iid, network, ports, network_type, arch, endianness, qemuInitValue, 
                               'QEMU_INIT': qemuInitValue,
                               'QEMU_NETWORK': qemuNetworkConfig(arch, network, isUserNetwork, ports),
                               'QEMU_ENV_VARS': qemuEnvVars,
-                              'SERVICE_BLOCK': SERVICE_BLOCK
+                              'SERVICE_BLOCK': SERVICE_BLOCK,
+                              'WEB_PORTS': ' '.join(str(port) for port in web_ports),
                               }
 
 
@@ -1431,6 +1428,7 @@ def inferNetwork(iid, arch, endianness, init):
     targetDir = SCRATCHDIR + '/' + str(iid)
 
     loopFile = mountImage(targetDir)
+    evidence_network_plan = None
 
     fileType = subprocess.check_output(
         ["file", "-b", "%s/image/%s" % (targetDir, init)]
@@ -1520,7 +1518,7 @@ def inferNetwork(iid, arch, endianness, init):
     if os.path.isdir(firmware_dir):
 
         if (logs_mode == "firmadyne") or (logs_mode == "auto"):
-            for fname in ('ps.log', 'ip.log'):
+            for fname in ('ps.log', 'ip.log', 'fs.log'):
                 src = os.path.join(firmware_dir, fname)
                 if os.path.exists(src):
                     dst = os.path.join(targetDir, fname)
@@ -1539,6 +1537,64 @@ def inferNetwork(iid, arch, endianness, init):
     if not os.path.exists(targetDir + '/image/firmadyne/nvram_files'):
         print("Infer NVRAM default file!\n")
         os.system("{}/inferDefault.py {}".format(SCRIPTDIR, iid))
+
+    try:
+        work_path = Path(targetDir)
+        image_root = work_path / "image"
+        runtime_state = collect_runtime_state(work_path, image_root)
+        state_path = work_path / "runtime_state.json"
+        write_json_atomic(state_path, runtime_state)
+        evidence_network_plan = choose_network_plan(runtime_state)
+        write_json_atomic(work_path / "network_intervention.json", evidence_network_plan)
+
+        nvram_plan = build_nvram_plan(runtime_state, image_root)
+        write_json_atomic(work_path / "nvram_intervention.json", nvram_plan)
+        apply_override(image_root, nvram_plan)
+
+        service_path = work_path / "service"
+        service_command = ""
+        if service_path.exists():
+            service_command = service_path.read_text(encoding="utf-8", errors="ignore").strip()
+        visibility_plan = build_visibility_plan(runtime_state, image_root, service_command)
+        write_json_atomic(work_path / "web_visibility_intervention.json", visibility_plan)
+        apply_visibility_plan(image_root, visibility_plan)
+
+        if service_path.exists():
+            if service_command:
+                service_binary = resolve_service_binary(image_root, service_command)
+                bdg = run_karonte_bdg(
+                    image_root,
+                    service_binary,
+                    work_path / "karonte_bdg.json",
+                    work_path / "karonte_bdg_config.json",
+                )
+                if bdg.get("usable"):
+                    print("[*] Karonte BDG: {} nodes, {} edges".format(
+                        len(bdg.get("nodes", [])), len(bdg.get("edges", []))
+                    ))
+                else:
+                    print("[*] Karonte BDG unavailable; using runtime evidence fallback: {}".format(
+                        bdg.get("reason", bdg.get("status", "unknown"))
+                    ))
+                ipc_plan = build_ipc_plan(runtime_state, image_root, service_command, bdg=bdg)
+                write_json_atomic(work_path / "ipc_intervention.json", ipc_plan)
+                write_guest_plan(image_root / "firmadyne" / "ipc_plan", ipc_plan)
+
+                library_pool = os.environ.get("FIRMWELD_LIBRARY_POOL", "").strip()
+                if library_pool and Path(library_pool).is_dir():
+                    service_binary = ipc_plan.get("web_binary")
+                    candidate_binaries = [service_binary] if service_binary else []
+                    candidate_binaries.extend(
+                        item["binary"] for item in ipc_plan.get("missing_daemons", [])
+                    )
+                    library_plan = build_library_plan(
+                        image_root, Path(library_pool), candidate_binaries
+                    )
+                    write_json_atomic(work_path / "library_intervention.json", library_plan)
+                    apply_recoveries(image_root, library_plan)
+    except Exception as error:
+        print("[!] Evidence-based intervention planning failed: {}".format(error))
+        evidence_network_plan = None
     umountImage(targetDir, loopFile)
 
     data = open("%s/qemu.initial.serial.log" % targetDir, 'rb').read()
@@ -1581,6 +1637,22 @@ def inferNetwork(iid, arch, endianness, init):
         networkList = getNetworkList(data, ifacesWithIps, macChanges,
                                      mode=iface_parse_mode, ip_data=ip_data)
         cfg_cmds = []
+
+    state_interfaces = []
+    if evidence_network_plan:
+        state_interfaces = runtime_state.get("network", {}).get("interfaces", [])
+    if evidence_network_plan and state_interfaces and _has_valid_ip(ip_data):
+        selected = evidence_network_plan["selected"]
+        networkList = [tuple(selected["tap_tuple"])]
+        cfg_cmds = list(evidence_network_plan.get("commands", []))
+        iface_parse_mode = "paper_cost"
+        netfix_file = os.path.join(targetDir, "second_stage_netfix.list")
+        with open(netfix_file, "w") as f:
+            for command in cfg_cmds:
+                f.write(command.rstrip() + "\n")
+        print("[*] Using minimum-cost network intervention: {} cost={}".format(
+            selected["mode"], selected["cost"]
+        ))
     return qemuInitValue, networkList, targetFile, targetData, ports, cfg_cmds, socat_ok, iface_parse_mode
 
 
@@ -1633,7 +1705,9 @@ def socat_and_save(IID, mode="auto"):
         sizes = {}
         for line in t.splitlines():
             line = line.strip()
-            if "/firmadyne/ip.log" in line or "/firmadyne/ps.log" in line:
+            if any(path in line for path in (
+                "/firmadyne/ip.log", "/firmadyne/ps.log", "/firmadyne/fs.log"
+            )):
                 parts = line.split()
                 if len(parts) >= 9 and parts[0].startswith("-"):
                     try:
@@ -1651,6 +1725,15 @@ def socat_and_save(IID, mode="auto"):
         if not proc_ok:
             print("[!] _try_guest_loop: /proc not mounted or mount failed; ps 很可能为空。")
 
+        fs_cmd = (
+            b"/firmadyne/busybox sh -c '"
+            b"for p in /bin /sbin /etc /lib /usr /www /web /htdocs /var /tmp /home; do "
+            b"[ -e \"$p\" ] && /firmadyne/busybox find \"$p\" -xdev -print; "
+            b"done > /firmadyne/fs.log'\n"
+        )
+        sc.send(fs_cmd)
+        time.sleep(2)
+
         loop_cmd = (
             b"/firmadyne/busybox sh -c '"
             b"while /firmadyne/busybox true; do "
@@ -1667,7 +1750,7 @@ def socat_and_save(IID, mode="auto"):
 
         check_cmd = (
             b"/firmadyne/busybox sh -c '"
-            b"ls -l /firmadyne/ps.log /firmadyne/ip.log 2>&1; "
+            b"ls -l /firmadyne/ps.log /firmadyne/ip.log /firmadyne/fs.log 2>&1; "
             b"' ; echo '[[FIRMWELD-LOG-END]]'\n"
         )
         sc.send(check_cmd)
@@ -1683,8 +1766,9 @@ def socat_and_save(IID, mode="auto"):
             sizes = _parse_ls_sizes(text)
             ps_sz = sizes.get("/firmadyne/ps.log", 0)
             ip_sz = sizes.get("/firmadyne/ip.log", 0)
+            fs_sz = sizes.get("/firmadyne/fs.log", 0)
 
-            if ps_sz > 0 or ip_sz > 0:
+            if ps_sz > 0 or ip_sz > 0 or fs_sz > 0:
                 return True
 
             print("[!] ps.log / ip.log exist but are zero size — treat guest-loop as failed")
@@ -1708,6 +1792,7 @@ def socat_and_save(IID, mode="auto"):
         os.makedirs(scratch_iid_dir, exist_ok=True)
         ps_path = os.path.join(scratch_iid_dir, "ps.log")
         ip_path = os.path.join(scratch_iid_dir, "ip.log")
+        fs_path = os.path.join(scratch_iid_dir, "fs.log")
 
         any_written = False
 
@@ -1781,6 +1866,17 @@ def socat_and_save(IID, mode="auto"):
                         return True
             return False
 
+        try:
+            raw_fs = _capture_between(
+                sc,
+                b"for p in /bin /sbin /etc /lib /usr /www /web /htdocs /var /tmp /home; do "
+                b"[ -e \"$p\" ] && /firmadyne/busybox find \"$p\" -xdev -print; done",
+                timeout=30,
+            )
+            any_written = _safe_write(fs_path, raw_fs.decode(errors="ignore")) or any_written
+        except Exception as e:
+            print(f"[!] capture runtime filesystem failed: {e}")
+
         while time.time() < end_time:
             # ---- 1) ps ----
             try:
@@ -1812,7 +1908,7 @@ def socat_and_save(IID, mode="auto"):
         def _non_empty(path):
             return os.path.exists(path) and os.path.getsize(path) > 0
 
-        if any_written and (_non_empty(ps_path) or _non_empty(ip_path)):
+        if any_written and (_non_empty(ps_path) or _non_empty(ip_path) or _non_empty(fs_path)):
             return True
         return False
 
@@ -2038,7 +2134,7 @@ def process(iid, arch, endianness, makeQemuCmd=False, outfile=None, brand="Unkno
         print(f"[*] networkInfo: {networkList!r}")
         print(f"[*] cfg_cmds: {cfg_cmds!r}")
 
-        if iface_parse_mode == "ip_addr":
+        if iface_parse_mode in ("ip_addr", "paper_cost"):
             network_type = "None"
         else:
             networkList, network_type = checkNetwork(iid, networkList)
@@ -2105,6 +2201,12 @@ def run_second_stage_with_network(iid, arch, endianness,
     for idx, ip in enumerate(ips):
         with open(os.path.join(targetDir, f"ip.{idx}"), "w") as out:
             out.write(str(ip))
+
+    web_ports = sorted({port for proto, _bound_ip, port in ports if proto == "tcp" and port in (80, 443, 8000, 8080, 8888)})
+    if not web_ports:
+        web_ports = [80, 443]
+    with open(os.path.join(targetDir, "web_ports"), "w") as out:
+        out.write(" ".join(str(port) for port in web_ports) + "\n")
 
     isUserNetwork = any(isDhcpIp(ip) for ip in ips)
     with open(os.path.join(targetDir, "isDhcp"), "w") as out:

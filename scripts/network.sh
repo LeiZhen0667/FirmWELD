@@ -15,12 +15,14 @@ if (${FIRMWELD_NET}); then
     NET_BRIDGE=`${BUSYBOX} cat /firmadyne/net_bridge`
     NET_INTERFACE=`${BUSYBOX} cat /firmadyne/net_interface`
 
-    # netgear WNR2000 bridge command
-    while (true); do
+    # Bound the wait so a missing bridge cannot block all later phases.
+    ATTEMPTS=0
+    while [ ${ATTEMPTS} -lt 12 ]; do
       ${BUSYBOX} sleep 5
       if (${BUSYBOX} brctl show | ${BUSYBOX} grep -sq ${NET_BRIDGE}); then
         break
       fi
+      ATTEMPTS=$((ATTEMPTS + 1))
     done
 
     ${BUSYBOX} sleep 5
@@ -56,16 +58,5 @@ if (${FIRMWELD_NET}); then
       ${BUSYBOX} ifconfig ${NET_INTERFACE} 0.0.0.0 up
     fi
   fi
-
-  while $BUSYBOX true; do
-    iptables_path=$($BUSYBOX which iptables 2>/dev/null)
-    [ -z "$iptables_path" ] && break
-
-    $iptables_path --flush 2>/dev/null
-    $iptables_path -F 2>/dev/null
-    $iptables_path -P INPUT ACCEPT 2>/dev/null
-
-    $BUSYBOX sleep 5
-  done
 
 fi

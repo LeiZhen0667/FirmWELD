@@ -22,6 +22,11 @@ WORK_DIR=`get_scratch ${IID}`
 ARCH=${2}
 BRAND="${3:-Unknown}"
 
+# Results belong to this run only.  A failed deep check must not inherit a
+# transport-level success marker from an earlier attempt.
+rm -f "${WORK_DIR}/ping" "${WORK_DIR}/web" "${WORK_DIR}/web_transport" \
+      "${WORK_DIR}/web_acc" "${WORK_DIR}/time_web_acc"
+
 echo "===== Check inferred emulation start ====="
 echo "[*] Inferred network: terminating after ${TIMEOUT} secs..."
 ${WORK_DIR}/run.sh 2>&1 > ${WORK_DIR}/emulation.log &
@@ -50,11 +55,11 @@ if [ "${PING_RESULT}" = "true" ]; then
     echo ${IP} > ${WORK_DIR}/ip
 fi
 if [ "${WEB_RESULT}" = "true" ]; then
-    echo true > ${WORK_DIR}/web
+    echo true > ${WORK_DIR}/web_transport
     echo ${TIME_WEB} > ${WORK_DIR}/time_web
 fi
 
-if (${PING_RESULT}); then
+if (${WEB_RESULT}); then
     echo "[*] Ping & web check passed, running deep HTTP content check..."
 
     WEB_OK=false
@@ -76,8 +81,22 @@ if (${PING_RESULT}); then
     done
     if [ "${WEB_OK}" = true ]; then
         echo "[*] Deep web check passed."
+        echo true > "${WORK_DIR}/web"
+        if [ -f "${WORK_DIR}/time_web_acc" ]; then
+            cp "${WORK_DIR}/time_web_acc" "${WORK_DIR}/time_web"
+        fi
+        if [ -f "${WORK_DIR}/runtime_state.json" ]; then
+            python3 "${SCRIPT_DIR}/collect_web_resources.py" \
+                --work-dir "${WORK_DIR}" --workers 4 --limit 2000 || true
+            if [ -f "${WORK_DIR}/web_resources/manifest.json" ]; then
+                python3 "${SCRIPT_DIR}/export_deepfw_dataset.py" \
+                    --manifest "${WORK_DIR}/web_resources/manifest.json" \
+                    --output-root "${FIRMWELD_DIR}/deepfw_dataset" || true
+            fi
+        fi
     else
         echo "[!] Deep web check FAILED after ${MAX_ROUNDS} rounds (no web_acc)."
+        rm -f "${WORK_DIR}/web"
     fi
 fi
 

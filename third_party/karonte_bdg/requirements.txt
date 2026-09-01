@@ -1,0 +1,3 @@
+# Versions used by Karonte's Python 3 port at the vendored commit.
+angr~=9.0.5739
+networkx~=2.4

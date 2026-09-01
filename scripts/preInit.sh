@@ -1,6 +1,7 @@
 #!/firmadyne/sh
 
 BUSYBOX=/firmadyne/busybox
+export PATH=/firmadyne/wrapper-bin:/sbin:/usr/sbin:/bin:/usr/bin
 
 [ -d /dev ] || mkdir -p /dev
 [ -d /root ] || mkdir -p /root
@@ -16,4 +17,3 @@ ${BUSYBOX} ln -sf /proc/mounts /etc/mtab
 mkdir -p /dev/pts
 ${BUSYBOX} mount -t devpts devpts /dev/pts
 ${BUSYBOX} mount -t tmpfs tmpfs /run
-

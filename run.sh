@@ -213,6 +213,7 @@ function run_emulation()
         # TIMEOUT is set in "firmweld.config". This TIMEOUT is used for initial
         # log collection.
         TIMEOUT=$TIMEOUT FIRMWELD_NET=${FIRMWELD_NET} \
+          FIRMWELD_LIBRARY_POOL="${FIRMWELD_LIBRARY_POOL}" \
           python3 -u ./scripts/makeNetwork.py -i $IID -q -o -a ${ARCH} -b $BRAND\
           2>&1 > ${WORK_DIR}/makeNetwork.log
 

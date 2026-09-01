@@ -387,7 +387,13 @@ if __name__ == "__main__":
         with open(ip_file, "r") as f:
             potential_urls = [line.strip() for line in f if line.strip()]
 
-    ports = ["80", "443", "1900"]
+    ports = ["80", "443"]
+    ports_file = os.path.join(analysis_path, "web_ports")
+    if os.path.exists(ports_file):
+        with open(ports_file, "r") as handle:
+            for value in handle.read().split():
+                if value.isdigit() and 0 < int(value) < 65536 and value not in ports:
+                    ports.append(value)
     print("Running http_check (webcheck-only): ", brand, analysis_path, potential_urls, ports)
     checker = HTTPInteractionCheck(brand, analysis_path)
 

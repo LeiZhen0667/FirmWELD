@@ -157,11 +157,8 @@ chmod a+x "${IMAGE_DIR}/firmadyne/network.sh"
 cp "${SCRIPT_DIR}/run_service.sh" "${IMAGE_DIR}/firmadyne/run_service.sh"
 chmod a+x "${IMAGE_DIR}/firmadyne/run_service.sh"
 
-cp "${SCRIPT_DIR}/loop4ip_ps.sh" "${IMAGE_DIR}/firmadyne/loop4ip_ps.sh"
-chmod a+x "${IMAGE_DIR}/firmadyne/loop4ip_ps.sh"
-
-cp "${SCRIPT_DIR}/injectionChecker.sh" "${IMAGE_DIR}/bin/a"
-chmod a+x "${IMAGE_DIR}/bin/a"
+cp "${SCRIPT_DIR}/policy.sh" "${IMAGE_DIR}/firmadyne/policy.sh"
+chmod a+x "${IMAGE_DIR}/firmadyne/policy.sh"
 
 touch "${IMAGE_DIR}/firmadyne/debug.sh"
 chmod a+x "${IMAGE_DIR}/firmadyne/debug.sh"
